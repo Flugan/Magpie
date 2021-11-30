@@ -10,6 +10,10 @@
 #include "EffectCompiler.h"
 #include <rapidjson/document.h>
 
+#include <d3d9.h>
+
+// include the Direct3D Library file
+#pragma comment (lib, "d3d9.lib")
 
 extern std::shared_ptr<spdlog::logger> logger;
 
@@ -20,11 +24,17 @@ bool Renderer::Initialize() {
 		return false;
 	}
 
+	if (App::GetInstance().Vision()) {
+		if (!_InitDX9()) {
+			SPDLOG_LOGGER_ERROR(logger, "_InitDX9 失败");
+			return false;
+		}
+	}
 	if (!_CreateSwapChain()) {
 		SPDLOG_LOGGER_ERROR(logger, "_CreateSwapChain 失败");
 		return false;
 	}
-
+	
 	int frameRate = App::GetInstance().GetFrameRate();
 	
 	if (frameRate > 0) {
@@ -478,6 +488,119 @@ bool Renderer::_CreateSwapChain() {
 	return true;
 }
 
+bool Renderer::_InitDX9() {
+	const SIZE hostSize = App::GetInstance().GetHostWndSize();
+	SPDLOG_LOGGER_INFO(logger, "_InitDX9 失败 cx {} cy {}", hostSize.cx, hostSize.cy);
+
+	_d3d9.Attach(Direct3DCreate9(D3D_SDK_VERSION));    // create the Direct3D interface
+
+	D3DPRESENT_PARAMETERS d3dpp;    // create a struct to hold various device information
+
+	ZeroMemory(&d3dpp, sizeof(d3dpp));    // clear out the struct for use
+	d3dpp.Windowed = FALSE;    // program fullscreen, not windowed
+	d3dpp.SwapEffect = D3DSWAPEFFECT_DISCARD;    // discard old frames
+	d3dpp.BackBufferCount = 1;
+	d3dpp.hDeviceWindow = App::GetInstance().GetHwndDX9();    // set the window to be used by Direct3D
+	d3dpp.BackBufferFormat = D3DFMT_X8R8G8B8;    // set the back buffer format to 32-bit
+	d3dpp.BackBufferWidth = hostSize.cx / 2;    // set the width of the buffer
+	d3dpp.BackBufferHeight = hostSize.cy;    // set the height of the buffer
+
+
+	// create a device class using this information and the info from the d3dpp stuct
+	_d3d9->CreateDevice(D3DADAPTER_DEFAULT,
+		D3DDEVTYPE_HAL,
+		App::GetInstance().GetHwndDX9(),
+		D3DCREATE_SOFTWARE_VERTEXPROCESSING,
+		&d3dpp,
+		_d3d9dev.GetAddressOf());
+
+	return true;
+}
+
+void Renderer::_RenderFrame() {
+	const SIZE hostSize = App::GetInstance().GetHostWndSize();
+
+	_d3d9dev->BeginScene();    // begins the 3D scene
+
+	// Duplicate and map backBuffer
+	D3D11_TEXTURE2D_DESC desc;
+	_backBuffer->GetDesc(&desc);
+
+	D3D11_TEXTURE2D_DESC desc2;
+	desc2.Width = desc.Width;
+	desc2.Height = desc.Height;
+	desc2.MipLevels = desc.MipLevels;
+	desc2.ArraySize = desc.ArraySize;
+	desc2.Format = desc.Format;
+	desc2.SampleDesc = desc.SampleDesc;
+	desc2.Usage = D3D11_USAGE_STAGING;
+	desc2.BindFlags = 0;
+	desc2.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+	desc2.MiscFlags = 0;
+
+	ComPtr<ID3D11Texture2D> stagingTexture;
+	_d3dDevice->CreateTexture2D(&desc2, nullptr, stagingTexture.GetAddressOf());
+
+	// copy the texture to a staging resource
+	_d3dDC->CopyResource(stagingTexture.Get(), _backBuffer.Get());
+
+	ComPtr<IDirect3DSurface9> ImageSrc; // Source stereo image beeing created
+
+	_d3d9dev->CreateOffscreenPlainSurface(
+		hostSize.cx, // Stereo width is twice the source width
+		hostSize.cy + 1, // Stereo height add one raw to encode signature
+		D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, // Surface is in video memory
+		ImageSrc.GetAddressOf(), NULL);
+	
+	// Stereo Blit defines
+#define NVSTEREO_IMAGE_SIGNATURE 0x4433564e //NV3D
+
+	typedef struct _Nv_Stereo_Image_Header {
+		unsigned int dwSignature;
+		unsigned int dwWidth;
+		unsigned int dwHeight;
+		unsigned int dwBPP;
+		unsigned int dwFlags;
+	} NVSTEREOIMAGEHEADER, * LPNVSTEREOIMAGEHEADER;
+
+	// ORed flags in the dwFlags fiels of the _Nv_Stereo_Image_Header structure above
+#define SIH_SWAP_EYES 0x00000001
+#define SIH_SCALE_TO_FIT 0x00000002
+
+	// Lock the stereo image
+	D3DLOCKED_RECT lr;
+	ImageSrc->LockRect(&lr, NULL, 0);
+
+	D3D11_MAPPED_SUBRESOURCE mapInfo;
+	_d3dDC->Map(stagingTexture.Get(), 0, D3D11_MAP_READ, 0, &mapInfo);
+	memcpy(lr.pBits, mapInfo.pData, 4 * hostSize.cx * hostSize.cy);
+	_d3dDC->Unmap(stagingTexture.Get(), 0);
+
+	// write stereo signature in the last raw of the stereo image
+	LPNVSTEREOIMAGEHEADER pSIH =
+		(LPNVSTEREOIMAGEHEADER)(((unsigned char*)lr.pBits) + (lr.Pitch * hostSize.cy));
+
+	// Update the signature header values
+	pSIH->dwSignature = NVSTEREO_IMAGE_SIGNATURE;
+	pSIH->dwBPP = 32;
+	pSIH->dwFlags = SIH_SWAP_EYES; // Src image has left on left and right on right
+	pSIH->dwWidth = hostSize.cx;
+	pSIH->dwHeight = hostSize.cy;
+	// Unlock surface
+	ImageSrc->UnlockRect();
+
+	ComPtr<IDirect3DSurface9> BackBuffer;
+	_d3d9dev->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, BackBuffer.GetAddressOf());
+
+	RECT codedRect = { 0, 0, hostSize.cx, hostSize.cy + 1 };
+	RECT backRect = { 0, 0, hostSize.cx / 2, hostSize.cy };
+	_d3d9dev->StretchRect(ImageSrc.Get(), &codedRect, BackBuffer.Get(), &backRect, D3DTEXF_LINEAR);
+
+	_d3d9dev->EndScene();    // ends the 3D scene
+
+	_d3d9dev->Present(NULL, NULL, NULL, NULL);   // displays the created frame on the screen
+}
+
 void Renderer::_Render() {
 	int frameRate = App::GetInstance().GetFrameRate();
 
@@ -485,30 +608,36 @@ void Renderer::_Render() {
 		WaitForSingleObjectEx(_frameLatencyWaitableObject.get(), 1000, TRUE);
 	}
 
+	/*
 	if (!_CheckSrcState()) {
 		SPDLOG_LOGGER_INFO(logger, "源窗口状态改变，退出全屏");
 		App::GetInstance().Close();
 		return;
 	}
+	*/
 
 	_waitingForNextFrame = !App::GetInstance().GetFrameSource().Update();
 	if (_waitingForNextFrame) {
 		return;
 	}
-
+	
 	_d3dDC->ClearState();
 	// 所有渲染都使用三角形带拓扑
 	_d3dDC->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
-
+	
 	for (EffectDrawer& effect : _effects) {
 		effect.Draw();
 	}
-
+	
 	if (App::GetInstance().IsShowFPS()) {
 		_frameRateDrawer.Draw();
 	}
-
+	
 	_cursorDrawer.Draw();
+
+	if (GetD3D9()) {
+		_RenderFrame();
+	}
 
 	if (frameRate != 0) {
 		_dxgiSwapChain->Present(0, DXGI_PRESENT_ALLOW_TEARING);

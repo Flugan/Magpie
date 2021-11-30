@@ -12,9 +12,11 @@ extern std::shared_ptr<spdlog::logger> logger;
 
 const UINT WM_DESTORYHOST = RegisterWindowMessage(L"MAGPIE_WM_DESTORYHOST");
 
+static constexpr const wchar_t* DX9_WINDOW_CLASS_NAME = L"Window_Magpie_DX9_3DVision";
 static constexpr const wchar_t* HOST_WINDOW_CLASS_NAME = L"Window_Magpie_967EB565-6F73-4E94-AE53-00CC42592A22";
 static constexpr const wchar_t* DDF_WINDOW_CLASS_NAME = L"Window_Magpie_C322D752-C866-4630-91F5-32CB242A8930";
 static constexpr const wchar_t* HOST_WINDOW_TITLE = L"Magpie_Host";
+static constexpr const wchar_t* DX9_WINDOW_TITLE = L"Magpie_3DVision";
 
 
 App::~App() {
@@ -74,7 +76,7 @@ bool App::Run(
 
 	// 每次进入全屏都要重置
 	_nextTimerId = 1;
-	
+
 	SetErrorMsg(ErrorMessages::GENERIC);
 
 	// 禁用窗口大小调整
@@ -105,6 +107,13 @@ bool App::Run(
 		return false;
 	}
 
+	if (Vision()) {
+		if (!_CreateDX9Wnd()) {
+			SPDLOG_LOGGER_CRITICAL(logger, "DX9 创建主窗口失败");
+			return false;
+		}
+	}
+
 	if (IsDisableDirectFlip() && !IsBreakpointMode()) {
 		if (!_DisableDirectFlip()) {
 			SPDLOG_LOGGER_ERROR(logger, "_DisableDirectFlip 失败");
@@ -115,6 +124,7 @@ bool App::Run(
 	if (!_renderer->Initialize()) {
 		SPDLOG_LOGGER_CRITICAL(logger, "初始化 Renderer 失败，正在清理");
 		DestroyWindow(_hwndHost);
+		DestroyWindow(_hwndDX9);
 		_Run();
 		return false;
 	}
@@ -138,13 +148,15 @@ bool App::Run(
 	default:
 		SPDLOG_LOGGER_CRITICAL(logger, "未知的捕获模式，即将退出");
 		DestroyWindow(_hwndHost);
+		DestroyWindow(_hwndDX9);
 		_Run();
 		return false;
 	}
-	
+
 	if (!_frameSource->Initialize()) {
 		SPDLOG_LOGGER_CRITICAL(logger, "初始化 FrameSource 失败，即将退出");
 		DestroyWindow(_hwndHost);
+		DestroyWindow(_hwndDX9);
 		_Run();
 		return false;
 	}
@@ -152,6 +164,7 @@ bool App::Run(
 	if (!_renderer->InitializeEffectsAndCursor(effectsJson)) {
 		SPDLOG_LOGGER_CRITICAL(logger, "初始化效果失败，即将退出");
 		DestroyWindow(_hwndHost);
+		DestroyWindow(_hwndDX9);
 		_Run();
 		return false;
 	}
@@ -279,6 +292,15 @@ void App::_RegisterWndClasses() const {
 		SPDLOG_LOGGER_INFO(logger, "已注册主窗口类");
 	}
 
+	wcex.lpfnWndProc = _HostWndProcStatic;
+	wcex.lpszClassName = DX9_WINDOW_CLASS_NAME;
+
+	if (!RegisterClassEx(&wcex)) {
+		SPDLOG_LOGGER_ERROR(logger, MakeWin32ErrorMsg("注册 DX9 窗口类失败"));
+	} else {
+		SPDLOG_LOGGER_INFO(logger, "已注册 DX9 窗口类");
+	}
+
 	wcex.lpfnWndProc = DDFWndProc;
 	wcex.hbrBackground = (HBRUSH)GetStockObject(GRAY_BRUSH);
 	wcex.lpszClassName = DDF_WINDOW_CLASS_NAME;
@@ -299,12 +321,14 @@ bool App::_CreateHostWnd() {
 
 	RECT screenRect = Utils::GetScreenRect(_hwndSrc);
 	_hostWndSize.cx = screenRect.right - screenRect.left;
+	if (Vision())
+		_hostWndSize.cx *= 2;
 	_hostWndSize.cy = screenRect.bottom - screenRect.top;
 	_hwndHost = CreateWindowEx(
 		(IsBreakpointMode() ? 0 : WS_EX_TOPMOST) | WS_EX_NOACTIVATE | WS_EX_LAYERED | WS_EX_TRANSPARENT,
 		HOST_WINDOW_CLASS_NAME,
 		HOST_WINDOW_TITLE,
-		WS_CLIPCHILDREN | WS_POPUP | WS_VISIBLE,
+		WS_CLIPCHILDREN | WS_POPUP | WS_VISIBLE, 
 		screenRect.left,
 		screenRect.top,
 		_hostWndSize.cx,
@@ -314,6 +338,7 @@ bool App::_CreateHostWnd() {
 		_hInst,
 		NULL
 	);
+	
 	if (!_hwndHost) {
 		SPDLOG_LOGGER_CRITICAL(logger, MakeWin32ErrorMsg("创建主窗口失败"));
 		return false;
@@ -332,6 +357,33 @@ bool App::_CreateHostWnd() {
 	}
 
 	SPDLOG_LOGGER_INFO(logger, "已创建主窗口");
+	return true;
+}
+
+bool App::_CreateDX9Wnd() {
+	_hwndDX9 = CreateWindowEx(
+		0,
+		DX9_WINDOW_CLASS_NAME,
+		DX9_WINDOW_TITLE,
+		WS_POPUP,
+		0,
+		0,
+		_hostWndSize.cx / 2,
+		_hostWndSize.cy,
+		NULL,
+		NULL,
+		_hInst,
+		NULL
+	);
+
+	SPDLOG_LOGGER_INFO(logger, fmt::format("DX9 主窗口尺寸：{}x{}", _hostWndSize.cx / 2, _hostWndSize.cy));
+
+	if (!ShowWindow(_hwndHost, SW_SHOWDEFAULT)) {
+		SPDLOG_LOGGER_ERROR(logger, MakeWin32ErrorMsg("DX9 ShowWindow 失败"));
+	}
+
+	SPDLOG_LOGGER_INFO(logger, "DX9 已创建主窗口");
+
 	return true;
 }
 
@@ -416,4 +468,5 @@ void App::Close() {
 		DestroyWindow(_hwndDDF);
 	}
 	DestroyWindow(_hwndHost);
+	DestroyWindow(_hwndDX9);
 }

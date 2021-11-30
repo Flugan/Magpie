@@ -6,6 +6,7 @@
 #include <CommonStates.h>
 #include "StepTimer.h"
 #include "Utils.h"
+#include <d3d9.h>
 
 
 class Renderer {
@@ -28,6 +29,10 @@ public:
 
 	ComPtr<IDXGIDevice1> GetDXGIDevice() const {
 		return _dxgiDevice;
+	}
+
+	ComPtr<IDirect3D9> GetD3D9() const {
+		return _d3d9;
 	}
 
 	bool GetRenderTargetView(ID3D11Texture2D* texture, ID3D11RenderTargetView** result);
@@ -59,11 +64,15 @@ private:
 
 	bool _CreateSwapChain();
 
+	bool _InitDX9();
+
 	bool _CheckSrcState();
 
 	bool _ResolveEffectsJson(const std::string& effectsJson, RECT& destRect);
 
 	void _Render();
+
+	void _RenderFrame();
 
 	D3D_FEATURE_LEVEL _featureLevel = D3D_FEATURE_LEVEL_10_0;
 
@@ -73,6 +82,9 @@ private:
 
 	ComPtr<ID3D11Device1> _d3dDevice;
 	ComPtr<ID3D11DeviceContext1> _d3dDC;
+
+	ComPtr<IDirect3D9> _d3d9;
+	ComPtr<IDirect3DDevice9> _d3d9dev;
 
 	Utils::ScopedHandle _frameLatencyWaitableObject = NULL;
 	bool _waitingForNextFrame = false;

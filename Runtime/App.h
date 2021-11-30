@@ -44,6 +44,10 @@ public:
 		return _hwndHost;
 	}
 
+	HWND GetHwndDX9() const {
+		return _hwndDX9;
+	}
+
 	SIZE GetHostWndSize() const {
 		return _hostWndSize;
 	}
@@ -124,6 +128,10 @@ public:
 
 	bool RegisterTimer(UINT uElapse, std::function<void()> cb);
 
+	bool Vision() {
+		return _Vision;
+	}
+
 private:
 	App() {}
 
@@ -133,6 +141,8 @@ private:
 
 	// 创建主窗口
 	bool _CreateHostWnd();
+
+	bool _CreateDX9Wnd();
 
 	bool _DisableDirectFlip();
 
@@ -147,6 +157,7 @@ private:
 	HINSTANCE _hInst = NULL;
 	HWND _hwndSrc = NULL;
 	HWND _hwndHost = NULL;
+	HWND _hwndDX9 = NULL;
 
 	// 关闭 DirectFlip 时的背景全屏窗口
 	HWND _hwndDDF = NULL;
@@ -160,6 +171,7 @@ private:
 	UINT _cursorInterpolationMode = 0;
 	UINT _adapterIdx = 0;
 	UINT _flags = 0;
+	bool _Vision = true;
 
 	enum class _FlagMasks : UINT {
 		NoCursor = 0x1,

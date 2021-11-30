@@ -90,5 +90,14 @@
         "scale": [ 3, 3 ]
       }
     ]
+  },
+  {
+    "name": "3D Vision",
+    "effects": [
+      {
+        "effect": "Linear",
+        "scale": [ 2, 1 ]
+      }
+    ]
   }
 ]
