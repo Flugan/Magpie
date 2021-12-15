@@ -497,7 +497,7 @@ bool Renderer::_InitDX9() {
 	D3DPRESENT_PARAMETERS d3dpp;    // create a struct to hold various device information
 
 	ZeroMemory(&d3dpp, sizeof(d3dpp));    // clear out the struct for use
-	d3dpp.Windowed = FALSE;    // program fullscreen, not windowed
+	d3dpp.Windowed = FALSE;
 	d3dpp.SwapEffect = D3DSWAPEFFECT_DISCARD;    // discard old frames
 	d3dpp.BackBufferCount = 1;
 	d3dpp.hDeviceWindow = App::GetInstance().GetHwndDX9();    // set the window to be used by Direct3D
@@ -515,6 +515,9 @@ bool Renderer::_InitDX9() {
 		_d3d9dev.GetAddressOf());
 
 	return true;
+
+	HWND hwndSrc = App::GetInstance().GetHwndSrc();
+	SetForegroundWindow(hwndSrc);
 }
 
 void Renderer::_RenderFrame() {

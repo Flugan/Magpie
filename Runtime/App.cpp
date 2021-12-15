@@ -351,21 +351,21 @@ bool App::_CreateHostWnd() {
 	if (!SetLayeredWindowAttributes(_hwndHost, 0, IsDisableDirectFlip() ? 254 : 255, LWA_ALPHA)) {
 		SPDLOG_LOGGER_ERROR(logger, MakeWin32ErrorMsg("SetLayeredWindowAttributes 失败"));
 	}
-
+	
 	if (!ShowWindow(_hwndHost, SW_NORMAL)) {
 		SPDLOG_LOGGER_ERROR(logger, MakeWin32ErrorMsg("ShowWindow 失败"));
 	}
-
+	
 	SPDLOG_LOGGER_INFO(logger, "已创建主窗口");
 	return true;
 }
 
 bool App::_CreateDX9Wnd() {
 	_hwndDX9 = CreateWindowEx(
-		0,
+		WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_LAYERED | WS_EX_TRANSPARENT,
 		DX9_WINDOW_CLASS_NAME,
 		DX9_WINDOW_TITLE,
-		WS_POPUP,
+		WS_CLIPCHILDREN | WS_POPUP | WS_VISIBLE,
 		0,
 		0,
 		_hostWndSize.cx / 2,
